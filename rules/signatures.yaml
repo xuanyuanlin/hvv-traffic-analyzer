@@ -1,0 +1,232 @@
+# 护网行动攻击特征规则库
+# 基于《护网行动流量分析知识手册 v2.0》第 4-6 节内容设计
+# 每条规则: id, name, category, severity, protocol, mode, [target_fields/conditions], [patterns]
+
+rules:
+  # ============== SQL 注入 ==============
+  - id: SQLI-001
+    name: "SQL Injection - UNION SELECT"
+    category: sql_injection
+    severity: high
+    protocol: http
+    mode: pattern
+    target_fields: [uri, body, cookie]
+    patterns:
+      - '(?i)union\s+(all\s+)?select\s'
+      - '(?i)union\s+select\s+null'
+
+  - id: SQLI-002
+    name: "SQL Injection - Time-based Blind"
+    category: sql_injection
+    severity: high
+    protocol: http
+    mode: pattern
+    target_fields: [uri, body]
+    patterns:
+      - '(?i)\bsleep\s*\(\s*\d+\s*\)'
+      - '(?i)waitfor\s+delay\s+'
+      - '(?i)pg_sleep\s*\('
+
+  - id: SQLI-003
+    name: "SQL Injection - Boolean-based"
+    category: sql_injection
+    severity: medium
+    protocol: http
+    mode: pattern
+    target_fields: [uri, body]
+    patterns:
+      - "(?i)'\\s*(or|and)\\s+['\\d]"
+      - '(?i)\\bor\\s+1\\s*=\\s*1'
+
+  - id: SQLI-004
+    name: "SQL Injection - Error-based"
+    category: sql_injection
+    severity: high
+    protocol: http
+    mode: pattern
+    target_fields: [uri, body]
+    patterns:
+      - '(?i)(extractvalue|updatexml|exp\s*\(\s*~)'
+      - '(?i)(information_schema|sys\.databases|mysql\.user)'
+
+  # ============== 命令注入 ==============
+  - id: CMDI-001
+    name: "Command Injection - Linux"
+    category: cmd_injection
+    severity: high
+    protocol: http
+    mode: pattern
+    target_fields: [uri, body]
+    patterns:
+      - '[;&|`]\s*(cat|whoami|id|uname|ifconfig|wget|curl|nc|ncat)\s'
+      - '\\$\\([^)]*\\)'
+      - '`[^`]+`'
+      - '\|\s*(bash|sh|zsh)'
+
+  - id: CMDI-002
+    name: "Command Injection - Windows"
+    category: cmd_injection
+    severity: high
+    protocol: http
+    mode: pattern
+    target_fields: [uri, body]
+    patterns:
+      - '(?i)powershell\s+(-nop|-enc|-w\s+hidden|-ExecutionPolicy\s+Bypass)'
+      - '(?i)certutil\s+-urlcache'
+      - '(?i)\|\s*(dir|whoami|net\s+user|ipconfig|systeminfo|tasklist)'
+      - '(?i)cmd\.exe\s*/c'
+
+  # ============== 目录遍历 ==============
+  - id: DIRTR-001
+    name: "Directory Traversal"
+    category: dir_traversal
+    severity: medium
+    protocol: http
+    mode: pattern
+    target_fields: [uri]
+    patterns:
+      - '(?:\\.\\.(/|%2[fF])){2,}'
+      - '(?i)php://filter/'
+      - '(?i)file:///'
+      - '\\.\\.\\.\\./'
+      - '(?i)\.\.%252f'
+
+  # ============== 文件上传 ==============
+  - id: UPLOAD-001
+    name: "Suspicious File Upload"
+    category: file_upload
+    severity: high
+    protocol: http
+    mode: condition
+    conditions:
+      - field: method
+        operator: eq
+        value: "POST"
+      - field: content_type
+        operator: contains
+        value: "multipart/form-data"
+      - field: body
+        operator: regex
+        value: '(?i)filename=.*\.(php|jsp|asp|aspx|phtml|pht|jspx|war)'
+
+  # ============== Webshell 通信 ==============
+  - id: WEBSHELL-001
+    name: "Behinder (冰蝎) Communication"
+    category: webshell
+    severity: critical
+    protocol: http
+    mode: condition
+    conditions:
+      - field: method
+        operator: eq
+        value: "POST"
+      - field: content_type
+        operator: eq
+        value: "application/octet-stream"
+      - field: body_entropy
+        operator: gte
+        value: 7.0
+      - field: body_length_mod16
+        operator: eq
+        value: 0
+
+  - id: WEBSHELL-002
+    name: "Godzilla Webshell - Cookie Anomaly"
+    category: webshell
+    severity: critical
+    protocol: http
+    mode: condition
+    conditions:
+      - field: cookie
+        operator: regex
+        value: '^[A-Za-z0-9+/=]{50,}$'
+      - field: body_length_mod16
+        operator: eq
+        value: 0
+
+  - id: WEBSHELL-003
+    name: "AntSword (蚁剑) User-Agent"
+    category: webshell
+    severity: high
+    protocol: http
+    mode: condition
+    conditions:
+      - field: user_agent
+        operator: regex
+        value: '(?i)antSword'
+
+  # ============== C2 通信 ==============
+  - id: C2-001
+    name: "Cobalt Strike - Default HTTP Beacon URI"
+    category: c2
+    severity: critical
+    protocol: http
+    mode: pattern
+    target_fields: [uri]
+    patterns:
+      - '(?i)(submit\.php|submit\.asp|jquery-\d+\.\d+\.\d+\.min\.js)\?id=\d+'
+      - '(?i)/_init\.php'
+
+  - id: C2-002
+    name: "DNS Tunnel - High Entropy Subdomain"
+    category: c2
+    severity: high
+    protocol: dns
+    mode: condition
+    conditions:
+      - field: subdomain_entropy
+        operator: gte
+        value: 3.5
+      - field: subdomain_length
+        operator: gte
+        value: 30
+
+  - id: C2-003
+    name: "DNS TXT Record Exfiltration"
+    category: c2
+    severity: high
+    protocol: dns
+    mode: condition
+    conditions:
+      - field: query_type
+        operator: eq
+        value: "TXT"
+
+  # ============== 反序列化 ==============
+  - id: DESER-001
+    name: "Java Serialization Attack"
+    category: deserialization
+    severity: critical
+    protocol: http
+    mode: pattern
+    target_fields: [body, uri]
+    patterns:
+      - 'rO0AB'
+      - 'aced0005'
+      - 'O:4:"User"'
+
+  # ============== Log4Shell ==============
+  - id: LOG4J-001
+    name: "Log4Shell (CVE-2021-44228)"
+    category: log4shell
+    severity: critical
+    protocol: http
+    mode: pattern
+    target_fields: [uri, body, header]
+    patterns:
+      - '\\$\\{jndi:(ldap|rmi|dns|ldaps|iiop|corba|nds|http)://'
+      - '\\$\\{\\$\\{lower:[a-z]\\}'
+
+  # ============== XSS ==============
+  - id: XSS-001
+    name: "Cross-Site Scripting"
+    category: xss
+    severity: medium
+    protocol: http
+    mode: pattern
+    target_fields: [uri, body]
+    patterns:
+      - '<script[^>]*>'
+      - '(?i)on(error|load|click|mouseover|focus)\s*='
+      - '(?i)<svg[^>]*onload'
+      - 'javascript:'

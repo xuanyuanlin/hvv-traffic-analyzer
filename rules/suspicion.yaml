@@ -1,0 +1,227 @@
+# 可疑流量行为规则库
+# 不构成确认告警，但需要关注和导出的行为
+# 规则分三级：high_suspicion / medium_suspicion / low_suspicion
+
+rules:
+  # ==================== HTTP 层可疑 ====================
+
+  - id: SUS-HTTP-001
+    name: "Non-standard User-Agent"
+    category: suspicious_ua
+    severity: medium_suspicion
+    protocol: http
+    mode: condition
+    description: "非浏览器 User-Agent，可能是扫描工具或脚本"
+    search_hint: "UA 特征"
+    conditions:
+      - field: user_agent
+        operator: not_browser_ua
+        value: true
+
+  - id: SUS-HTTP-002
+    name: "Sensitive Path Access"
+    category: sensitive_path
+    severity: high_suspicion
+    protocol: http
+    mode: pattern
+    description: "访问敏感路径，可能是信息收集或漏洞探测"
+    target_fields: [uri]
+    patterns:
+      - '(?i)/actuator'
+      - '(?i)/env\b'
+      - '(?i)/config\.php'
+      - '(?i)/debug\b'
+      - '(?i)/\.env'
+      - '(?i)/swagger'
+      - '(?i)/api-docs'
+      - '(?i)/openapi'
+      - '(?i)/graphql'
+      - '(?i)/\.git'
+      - '(?i)/\.svn'
+      - '(?i)/WEB-INF'
+      - '(?i)/phpinfo'
+      - '(?i)/phpmyadmin'
+      - '(?i)/admin\b'
+      - '(?i)/console\b'
+      - '(?i)/manage\b'
+      - '(?i)/manager\.html'
+      - '(?i)/jmx-console'
+      - '(?i)/web-console'
+      - '(?i)/druid'
+      - '(?i)/heapdump'
+      - '(?i)/trace'
+      - '(?i)/mappings'
+      - '(?i)/beans'
+      - '(?i)/health\b'
+      - '(?i)/metrics\b'
+      - '(?i)/backup'
+      - '(?i)/database'
+      - '(?i)/db_admin'
+      - '(?i)/solr/admin'
+      - '(?i)/nacos'
+      - '(?i)/eureka'
+
+  - id: SUS-HTTP-003
+    name: "Uncommon HTTP Method"
+    category: unusual_method
+    severity: medium_suspicion
+    protocol: http
+    mode: condition
+    description: "使用非常规 HTTP 方法"
+    conditions:
+      - field: method
+        operator: not_in
+        value: "GET,POST,HEAD"
+
+  - id: SUS-HTTP-004
+    name: "Large 4xx Error Count (rate-based)"
+    category: error_spike
+    severity: medium_suspicion
+    protocol: http
+    mode: condition
+    description: "同一源 IP 大量 4xx 错误响应，可能是扫描或枚举"
+    conditions:
+      - field: status_code
+        operator: range
+        value: "400-499"
+
+  - id: SUS-HTTP-005
+    name: "High Entropy POST Body (below threshold)"
+    category: high_entropy
+    severity: high_suspicion
+    protocol: http
+    mode: condition
+    description: "POST 请求体熵值偏高(5.0-7.0)，可能是加密/编码数据但未达冰蝎确认阈值"
+    conditions:
+      - field: method
+        operator: eq
+        value: "POST"
+      - field: body_entropy
+        operator: range
+        value: "5.0-7.0"
+
+  - id: SUS-HTTP-006
+    name: "POST to Dynamic Script"
+    category: script_post
+    severity: medium_suspicion
+    protocol: http
+    mode: pattern
+    description: "向动态脚本文件发送 POST 请求"
+    target_fields: [uri]
+    patterns:
+      - '(?i)\.php(\?|$)'
+      - '(?i)\.jsp(\?|$)'
+      - '(?i)\.asp(x)?(\?|$)'
+      - '(?i)\.action(\?|$)'
+      - '(?i)\.do(\?|$)'
+
+  # ==================== DNS 层可疑 ====================
+
+  - id: SUS-DNS-001
+    name: "Long Subdomain (below tunnel threshold)"
+    category: dns_anomaly
+    severity: medium_suspicion
+    protocol: dns
+    mode: condition
+    description: "子域名较长(>20字符)但未达 DNS 隧道确认阈值(30)"
+    conditions:
+      - field: subdomain_length
+        operator: range
+        value: "20-30"
+
+  - id: SUS-DNS-002
+    name: "Suspicious TLD Domain"
+    category: dns_anomaly
+    severity: low_suspicion
+    protocol: dns
+    mode: condition
+    description: "使用攻击者常用的免费/廉价 TLD 域名"
+    conditions:
+      - field: query_name
+        operator: regex
+        value: '\.(xyz|top|tk|buzz|ml|ga|cf|gq|pw|cc|club|work|fit|info|site|online|space|tech|uno)\.'
+
+  - id: SUS-DNS-003
+    name: "TXT Record Query"
+    category: dns_anomaly
+    severity: low_suspicion
+    protocol: dns
+    mode: condition
+    description: "TXT 记录查询，可能是 DNS 隧道数据传输"
+    conditions:
+      - field: query_type
+        operator: eq
+        value: "TXT"
+
+  # ==================== 连接层可疑 ====================
+
+  - id: SUS-CONN-001
+    name: "Non-standard HTTP Port"
+    category: unusual_port
+    severity: low_suspicion
+    protocol: tcp
+    mode: condition
+    description: "HTTP 流量使用非标准端口（可能是管理后台或隐蔽服务）"
+    conditions:
+      - field: dst_port
+        operator: in_list
+        value: "8080,8443,8888,9090,9443,7001,7002,8000,8001,8009,8161,8880,9200,9300,6379,27017,2379,11211"
+
+  - id: SUS-CONN-002
+    name: "Off-hours SSH/RDP Connection"
+    category: off_hours
+    severity: medium_suspicion
+    protocol: tcp
+    mode: condition
+    description: "非工作时间(00:00-06:00)的 SSH/RDP 连接"
+    conditions:
+      - field: dst_port
+        operator: in_list
+        value: "22,3389"
+      - field: hour_range
+        operator: in_range
+        value: "0-6"
+
+  - id: SUS-CONN-003
+    name: "Outbound SSH/RDP to External"
+    category: lateral_movement
+    severity: high_suspicion
+    protocol: tcp
+    mode: condition
+    description: "内部主机向外网发起 SSH/RDP 连接，可能是反弹隧道或数据外传"
+    conditions:
+      - field: src_ip
+        operator: is_private
+        value: true
+      - field: dst_ip
+        operator: is_public
+        value: true
+      - field: dst_port
+        operator: in_list
+        value: "22,3389,5985,5986"
+
+  # ==================== TLS 层可疑 ====================
+
+  - id: SUS-TLS-001
+    name: "Self-signed Certificate"
+    category: tls_anomaly
+    severity: medium_suspicion
+    protocol: tls
+    mode: condition
+    description: "使用自签名证书，常见于攻击工具和 C2 基础设施"
+    conditions:
+      - field: cert_equals
+        operator: eq
+        value: "issuer_eq_subject"
+
+  - id: SUS-TLS-002
+    name: "Deprecated TLS Version"
+    category: tls_anomaly
+    severity: low_suspicion
+    protocol: tls
+    mode: condition
+    description: "使用已弃用的 TLS 版本（1.0/1.1）"
+    conditions:
+      - field: tls_version
+        operator: in_list
+        value: "TLS 1.0,TLS 1.1"

@@ -1,0 +1,45 @@
+# IOC 提取正则模式
+
+patterns:
+  ip:
+    regex: "\\b(?:(?:25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){3}(?:25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\b"
+    exclude_private: false
+
+  domain:
+    sources:
+      - http_host
+      - dns_query
+      - tls_sni
+    regex: "\\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,}\\b"
+    exclude_tlds: []
+
+  url:
+    sources:
+      - http_request
+    regex: "https?://[^\\s\"' <>]+"
+
+  user_agent:
+    sources:
+      - http_header
+    suspicious_patterns:
+      - "(?i)sqlmap"
+      - "(?i)nikto"
+      - "(?i)nmap"
+      - "(?i)python-requests"
+      - "(?i)curl/"
+      - "(?i)wget"
+      - "(?i)antSword"
+      - "(?i)Go-http-client"
+      - "(?i)masscan"
+      - "(?i)zgrab"
+      - "(?i)goby"
+
+  tls_ja3:
+    sources:
+      - tls_handshake
+    note: "需要 tshark 编译时支持 JA3 插件，或 Zeek 输出"
+
+  tls_ja4:
+    sources:
+      - tls_handshake
+    note: "需要 tshark 支持 JA4 或 Suricata EVE 日志联动"
